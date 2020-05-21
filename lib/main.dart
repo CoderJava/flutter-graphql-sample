@@ -1,7 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:fluttergraphqlsample/form_profile.dart';
 import 'package:graphql/client.dart';
 
 void main() => runApp(App());
+
+enum Status {
+  loading,
+  success,
+  failure,
+}
 
 class App extends StatelessWidget {
   @override
@@ -18,164 +27,165 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  final scaffoldState = GlobalKey<ScaffoldState>();
+  HttpLink link;
   GraphQLClient client;
+  InMemoryCache inMemoryCache;
+  StreamController<Status> streamController;
+  List<dynamic> listData;
 
   @override
-  void initState() {
+  initState() {
+    streamController = StreamController<Status>();
+    listData = [];
+    link = HttpLink(uri: 'http://bengkelrobot.net:8005/graphql');
+    inMemoryCache = InMemoryCache();
     client = GraphQLClient(
-      link: HttpLink(uri: 'http://bengkelrobot.net:8005/graphql'),
-      cache: InMemoryCache(),
+      link: link,
+      cache: inMemoryCache,
+      defaultPolicies: DefaultPolicies(
+        watchQuery: Policies(fetch: FetchPolicy.noCache),
+        query: Policies(fetch: FetchPolicy.noCache),
+        mutate: Policies(fetch: FetchPolicy.noCache),
+      ),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAllProfiles();
+    });
     super.initState();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Flutter GraphQL'),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            RaisedButton(
-              child: Text('Query'),
-              onPressed: () {
-                executeQuery();
-              },
-            ),
-            RaisedButton(
-              child: Text('Mutation'),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) {
-                      return MutationPage();
-                    },
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> executeQuery() async {
-    var queryProfile = r'''
-    query {
+  void _loadAllProfiles() async {
+    streamController.add(Status.loading);
+    var queryAllProfiles = r'''
+    {
       allProfile {
         id
         name
         email
         age
-      }
+      } 
     }
     ''';
-    var options = QueryOptions(
-      documentNode: gql(queryProfile),
+    var queryOptions = QueryOptions(
+      documentNode: gql(queryAllProfiles),
     );
-    var result = await client.query(options);
-    if (result.hasException) {
-      debugPrint('result.hasException: ${result.exception.toString()}');
-      return;
+    try {
+      var queryResult = await client.query(queryOptions);
+      listData.clear();
+      listData.addAll(queryResult.data['allProfile']);
+      streamController.add(Status.success);
+    } on Exception catch (error) {
+      streamController.add(Status.failure);
+      debugPrint('$error');
     }
-    debugPrint('result.query: ${result.data}');
   }
-}
 
-class MutationPage extends StatefulWidget {
   @override
-  _MutationPageState createState() => _MutationPageState();
-}
-
-class _MutationPageState extends State<MutationPage> {
-  final client = GraphQLClient(
-    link: HttpLink(uri: 'http://bengkelrobot.net:8005/graphql'),
-    cache: InMemoryCache(),
-  );
-  final controllerName = TextEditingController();
-  final controllerEmail = TextEditingController();
-  final controllerAge = TextEditingController();
+  void dispose() {
+    streamController.close();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: scaffoldState,
       appBar: AppBar(
-        title: Text('Mutation'),
+        title: Text('GraphQL Demo'),
+        actions: <Widget>[
+          IconButton(
+            icon: Icon(
+              Icons.refresh,
+              color: Colors.white,
+            ),
+            onPressed: () {
+              _loadAllProfiles();
+            },
+          ),
+        ],
       ),
-      body: Container(
-        width: double.infinity,
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
+      body: StreamBuilder(
+        stream: streamController.stream,
+        initialData: Status.loading,
+        builder: (BuildContext context, AsyncSnapshot<Status> snapshot) {
+          var status = snapshot.data;
+          if (status == Status.loading) {
+            return Center(
+              child: CircularProgressIndicator(),
+            );
+          } else if (status == Status.failure) {
+            return Center(
+              child: Text('Error fetch all profiles'),
+            );
+          } else if (status == Status.success) {
+            return ListView.builder(
+              padding: EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 8.0,
+              ),
+              itemBuilder: (context, index) {
+                var item = listData[index];
+                return GestureDetector(
+                  onTap: () {
+                    // TODO: buat fitur edit dan delete profile
+                  },
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12.0,
+                        vertical: 12.0,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(item['name']),
+                          Text(
+                            item['email'],
+                            style: TextStyle(
+                              color: Colors.grey,
+                            ),
+                          ),
+                          Text(
+                            item['age'].toString(),
+                            style: TextStyle(
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+              itemCount: listData.length,
+            );
+          } else {
+            return Container();
+          }
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: Icon(
+          Icons.add,
+          color: Colors.white,
         ),
-        child: Column(
-          children: <Widget>[
-            TextField(
-              controller: controllerName,
-              decoration: InputDecoration(
-                labelText: 'Name',
-              ),
-              keyboardType: TextInputType.text,
+        onPressed: () async {
+          var result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) {
+                return FormProfile();
+              },
             ),
-            TextField(
-              controller: controllerEmail,
-              decoration: InputDecoration(
-                labelText: 'Email',
-              ),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            TextField(
-              controller: controllerAge,
-              decoration: InputDecoration(
-                labelText: 'Age',
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: RaisedButton(
-                child: Text('Submit'),
-                color: Colors.blue,
-                textColor: Colors.white,
-                onPressed: () async {
-                  const mutationProfile = r'''
-                  mutation CreateProfile($input: CreateProfileInput) {
-                    createProfile(input: $input) {
-                      id
-                      name
-                      email
-                      age
-                    }
-                  }  
-                  ''';
-                  var mapInput = {
-                    'name': controllerName.text,
-                    'email': controllerEmail.text,
-                    'age': controllerAge.text,
-                  };
-                  var options = MutationOptions(
-                    documentNode: gql(mutationProfile),
-                    variables: {
-                      'input': mapInput,
-                    },
-                  );
-                  var result = await client.mutate(options);
-                  if (result.hasException) {
-                    debugPrint('result.hasException: ${result.exception.toString()}');
-                    return;
-                  }
-                  debugPrint('result.mutate: ${result.data}');
-                },
-              ),
-            ),
-          ],
-        ),
+          );
+          if (result != null && result) {
+            scaffoldState.currentState.showSnackBar(
+              SnackBar(content: Text('Profile has been submitted')),
+            );
+            _loadAllProfiles();
+          }
+        },
       ),
     );
   }

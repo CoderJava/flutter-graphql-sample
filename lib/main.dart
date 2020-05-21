@@ -127,8 +127,26 @@ class _HomePageState extends State<HomePage> {
               itemBuilder: (context, index) {
                 var item = listData[index];
                 return GestureDetector(
-                  onTap: () {
-                    // TODO: buat fitur edit dan delete profile
+                  onTap: () async {
+                    var result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) {
+                          return FormProfile(
+                            profileId: int.parse(item['id']),
+                            profileName: item['name'],
+                            profileEmail: item['email'],
+                            profileAge: item['age'],
+                          );
+                        },
+                      ),
+                    );
+                    if (result != null) {
+                      scaffoldState.currentState.showSnackBar(
+                        SnackBar(content: Text(result['message'])),
+                      );
+                      _loadAllProfiles();
+                    }
                   },
                   child: Card(
                     child: Padding(
